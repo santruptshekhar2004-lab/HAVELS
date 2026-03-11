@@ -1,23 +1,31 @@
 # Agent AI Orchestrator
 
-Multi-agent orchestration system using [Strands Agents SDK](https://strandsagents.com) + Gemini 2.5 Pro.
+Multi-agent orchestration system using [Strands Agents SDK](https://strandsagents.com) + Gemini 2.5 Flash.
 
 ## Problem Statement
 
-1. **Intent Classification & Routing** — Correctly route user queries between a Shopping agent and an IoT device-control agent, even when intent changes mid-conversation ("turn on the AC" → "no, I want to buy an AC").
-2. **Prompt Injection Defense** — Reject anything outside the two supported domains. Attempts to override instructions, extract the system prompt, or ask off-topic questions are blocked.
+1. **Intent Classification & Routing** — Route user queries between a Shopping agent and an IoT device-control agent, even when intent changes mid-conversation.
+2. **Prompt Injection Defense** — Reject anything outside the two supported domains.
 
 ## How It Works
 
 ```
-User ──► Orchestrator Agent ──┬──► Shopping Agent
-                              └──► IoT Agent
+User ──► Orchestrator
+              │
+              ├─ Phase 1: structured_output() → { intent, confidence }
+              │   (no tools, constrained JSON, fast)
+              │
+              ├─ out_of_scope? → instant rejection
+              │
+              └─ Phase 2: route to specialist
+                    ├──► 🛒 Shopping Agent
+                    └──► 💡 IoT Agent
 ```
 
-- The **Orchestrator** is a Strands agent whose system prompt strictly limits it to two domains. It uses the "agents-as-tools" pattern — each specialist agent is wrapped with `@tool` and passed to the orchestrator.
-- The orchestrator reads the **latest** user message to determine current intent (handles mid-conversation switches).
-- Out-of-scope or injection attempts get a flat rejection — no tool is called.
-- Gemini 2.5 Pro with `temperature=0.2` keeps classification deterministic and fast.
+- **Structured pre-classification** via `structured_output()` returns a Pydantic model with intent + confidence. JSON-constrained, no hallucination on routing.
+- **Agents-as-tools** pattern — each specialist is a `@tool`-wrapped Strands agent.
+- **Prompt injection** caught at classifier level before any specialist is invoked.
+- Gemini 2.5 Flash with `temperature=0.2` keeps classification deterministic and fast.
 
 ## Setup
 
@@ -30,16 +38,17 @@ export GEMINI_API_KEY="your-key-here"
 
 ## Run
 
-Interactive chat:
+Streamlit UI (recommended):
+```bash
+streamlit run app.py
+```
+
+CLI interactive chat:
 ```bash
 python main.py
 ```
 
-Non-interactive demo (runs all test cases):
+Non-interactive demo:
 ```bash
 python demo.py
 ```
-
-## Latency
-
-Orchestrator classification + specialist response typically lands in the 200-400ms range depending on Gemini API latency. The low temperature and concise system prompts keep token counts minimal.

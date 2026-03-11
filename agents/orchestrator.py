@@ -1,3 +1,4 @@
+import time
 from enum import Enum
 from pydantic import BaseModel, Field
 from strands import Agent
@@ -48,21 +49,39 @@ class Orchestrator:
             system_prompt=ORCHESTRATOR_PROMPT,
         )
 
-    def __call__(self, user_input: str):
-        # phase 1: structured classification — no tools, fast
-        classification = self.classifier.structured_output(
-            IntentClassification, user_input
+    def _call_with_retry(self, fn, max_retries=2):
+        for attempt in range(max_retries + 1):
+            try:
+                return fn()
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait = 10 * (attempt + 1)
+                    print(f"  [Rate limited, retrying in {wait}s...]")
+                    time.sleep(wait)
+                else:
+                    raise
+        raise RuntimeError("Max retries exceeded due to rate limiting")
+
+    def classify(self, user_input: str) -> IntentClassification:
+        return self._call_with_retry(
+            lambda: self.classifier.structured_output(IntentClassification, user_input)
         )
+
+    def route(self, user_input: str, intent: Intent) -> str:
+        if intent == Intent.out_of_scope:
+            return REJECTION_MSG
+        return str(self._call_with_retry(lambda: self.router(user_input)))
+
+    def __call__(self, user_input: str):
+        classification = self.classify(user_input)
         intent = classification.intent
         confidence = classification.confidence
         print(f"  [Classified: {intent.value} | confidence: {confidence:.2f}]")
 
-        # phase 2: route or reject
+        response = self.route(user_input, intent)
         if intent == Intent.out_of_scope:
             print(f"\nAssistant: {REJECTION_MSG}")
-            return REJECTION_MSG
-
-        return self.router(user_input)
+        return response
 
 
 def create_orchestrator():

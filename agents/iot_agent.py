@@ -1,4 +1,5 @@
 from strands import Agent, tool
+from strands.agent.conversation_manager import SlidingWindowConversationManager
 from agents.model import get_model
 
 IOT_PROMPT = """You are an IoT device control assistant.
@@ -8,21 +9,23 @@ If a query is not about controlling or managing IoT devices, say so clearly and 
 When a user asks to control a device, confirm the action briefly (e.g. "Done. Turned on the AC in the living room.").
 IMPORTANT: Keep responses to 1-2 sentences max. Just confirm the action."""
 
+_instance: Agent | None = None
+
+
+def get_iot_agent() -> Agent:
+    global _instance
+    if _instance is None:
+        _instance = Agent(
+            model=get_model(max_tokens=256),
+            tools=[],
+            system_prompt=IOT_PROMPT,
+            callback_handler=None,
+            conversation_manager=SlidingWindowConversationManager(window_size=6),
+        )
+    return _instance
+
 
 @tool
 def iot_assistant(query: str) -> str:
-    """Handle IoT and smart home device control queries — turning devices on/off, adjusting settings, checking device status.
-
-    Args:
-        query: An IoT or smart-home device control request from the user.
-
-    Returns:
-        A confirmation or status of the device action.
-    """
-    agent = Agent(
-        model=get_model(),
-        tools=[],
-        system_prompt=IOT_PROMPT,
-        callback_handler=None,
-    )
-    return str(agent(query))
+    """Handle IoT and smart home device control queries — turning devices on/off, adjusting settings, checking status."""
+    return str(get_iot_agent()(query))
